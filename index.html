@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Brakecooling_737 — ORYNTAYEV ZHANIBEK</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    h1 { font-size: 18px; margin: 0; }
+    .sub { margin-top: 6px; color:#666; font-size: 12px; line-height: 1.35; }
+    .card { border: 1px solid #ddd; border-radius: 14px; padding: 12px; margin: 12px 0; }
+    label { display:block; font-size: 13px; margin: 10px 0 6px; }
+    input, select, button { width: 100%; padding: 10px; border-radius: 12px; border: 1px solid #ccc; font-size: 16px; }
+    button { border: none; cursor: pointer; background:#111; color:#fff; }
+    .row { display:flex; gap:10px; }
+    .row > div { flex:1; }
+    .muted { color:#666; font-size: 12px; line-height: 1.35; }
+    .out { font-size: 15px; line-height: 1.45; }
+    .badge { display:inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; margin-top: 8px; }
+    .ok { background: #eef7ee; border: 1px solid #bfe3bf; }
+    .caution { background:#fff6e5; border: 1px solid #ffd08a; }
+    .danger { background:#ffecec; border: 1px solid #ffb3b3; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .kv { display:flex; gap:10px; flex-wrap:wrap; margin-top: 10px; }
+    .kv > div { background:#f7f7f7; border:1px solid #e6e6e6; border-radius:12px; padding:8px 10px; font-size:12px; }
+    .small { font-size: 12px; color:#555; }
+    .sep { height: 1px; background:#eee; margin: 10px 0; }
+  </style>
+</head>
+
+<body>
+  <h1>Brakecooling_737</h1>
+  <div class="sub">
+    B737 Brake Cooling Calculator<br>
+    Made by <b>ORYNTAYEV ZHANIBEK</b> · v1.0<br>
+    Учебный инструмент. Не заменяет официальный QRH/FCOM и SOP авиакомпании.
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Landing Weight (kg)</label>
+        <input id="lw" type="number" step="100" placeholder="Напр. 64000" />
+      </div>
+      <div>
+        <label>OAT (°C)</label>
+        <input id="oat" type="number" step="1" placeholder="Напр. 12" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Pressure Altitude (ft)</label>
+        <input id="pa" type="number" step="100" placeholder="Напр. 5200" />
+      </div>
+      <div>
+        <label>Brakes-on speed (KIAS)</label>
+        <input id="bos" type="number" step="1" placeholder="Напр. 144" />
+      </div>
+    </div>
+
+    <label>Wind mode</label>
+    <select id="windMode">
+      <option value="NONE">No wind / already corrected</option>
+      <option value="HEAD">Headwind (BOS − 0.5×HW)</option>
+      <option value="TAIL">Tailwind (BOS + 1.5×TW)</option>
+      <option value="GS_MODE">Ground speed used (ignore wind; use SL + 15°C)</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>Wind (kt) — если выбран HEAD/TAIL</label>
+        <input id="wind" type="number" step="1" placeholder="Напр. 20" />
+      </div>
+      <div>
+        <label>Taxi miles (опц.)</label>
+        <input id="taxiMiles" type="number" step="0.1" placeholder="Напр. 1.5" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>EVENT</label>
+        <select id="event">
+          <option value="MAX_MAN">MAX MAN</option>
+          <option value="MAX_AUTO">MAX AUTO</option>
+          <option value="AB3">AUTOBRAKE 3</option>
+          <option value="AB2">AUTOBRAKE 2</option>
+          <option value="AB1">AUTOBRAKE 1</option>
+          <option value="RTO_MAX_MAN">RTO MAX MAN</option>
+        </select>
+      </div>
+      <div>
+        <label>Reverse thrust</label>
+        <select id="reverse">
+          <option value="NO_REV">No reverse</option>
+          <option value="TWO_ENG_DETENT">Two-engine detent reverse</option>
+          <option value="ONE_REV_ASSUME_NO">One reverse (count as No reverse)</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Situation</label>
+    <select id="context">
+      <option value="GROUND">GROUND</option>
+      <option value="INFLIGHT_GEAR_DOWN">INFLIGHT gear down</option>
+    </select>
+
+    <button id="calc" style="margin-top:12px;">Рассчитать (QRH + Interpolated)</button>
+
+    <div class="muted" style="margin-top:10px;">
+      NOTE: Wind correction = BOS − 0.5×HW или BOS + 1.5×TW.
+      GS mode: ignore wind, enter table with SL & 15°C.
+      <br>NOTE: +1.0 million ft·lb per brake за каждую taxi mile.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="out" id="output">Введите данные и нажмите “Рассчитать”.</div>
+  </div>
+
+<script>
+/* =========================
+   BINS + DATA
+   ========================= */
+const SPEED_BINS = [80,100,120,140,160,180];
+const PA_BINS_KFT = [0,5,10];
+const OAT_BINS_C = [0,10,15,20,30,40,50];
+const W_BINS_TKG = [40,50,60,70,80];
+
+/*
+DATA[W][OAT][SPD][PA] = Reference Brake Energy Per Brake (million ft·lb)
+W = 40..80 (1000kg), OAT = 0..50, SPD = 80..180, PA = 0/5/10 (kft)
+*/
+const DATA = {
+  "40": {
+    "0": {"80":{"0":9.9,"5":11.1,"10":12.5},"100":{"0":14.0,"5":15.7,"10":17.7},"120":{"0":18.5,"5":20.8,"10":23.5},"140":{"0":23.5,"5":26.5,"10":30.1},"160":{"0":28.9,"5":32.7,"10":37.3},"180":{"0":34.8,"5":39.4,"10":45.1}},
+    "10":{"80":{"0":10.2,"5":11.5,"10":12.9},"100":{"0":14.4,"5":16.2,"10":18.2},"120":{"0":19.1,"5":21.5,"10":24.3},"140":{"0":24.3,"5":27.4,"10":31.1},"160":{"0":29.9,"5":33.8,"10":38.5},"180":{"0":35.9,"5":40.7,"10":46.5}},
+    "15":{"80":{"0":10.4,"5":11.7,"10":13.1},"100":{"0":14.6,"5":16.5,"10":18.5},"120":{"0":19.4,"5":21.8,"10":24.7},"140":{"0":24.6,"5":27.8,"10":31.5},"160":{"0":30.3,"5":34.3,"10":39.1},"180":{"0":36.4,"5":41.3,"10":47.2}},
+    "20":{"80":{"0":10.6,"5":11.9,"10":13.3},"100":{"0":14.9,"5":16.7,"10":18.8},"120":{"0":19.7,"5":22.2,"10":25.1},"140":{"0":25.0,"5":28.2,"10":32.0},"160":{"0":30.8,"5":34.8,"10":39.7},"180":{"0":37.0,"5":41.9,"10":47.9}},
+    "30":{"80":{"0":10.9,"5":12.2,"10":13.7},"100":{"0":15.3,"5":17.2,"10":19.3},"120":{"0":20.2,"5":22.8,"10":25.8},"140":{"0":25.7,"5":29.0,"10":32.9},"160":{"0":31.7,"5":35.8,"10":40.8},"180":{"0":38.0,"5":43.1,"10":49.3}},
+    "40":{"80":{"0":10.9,"5":12.2,"10":13.7},"100":{"0":15.3,"5":17.3,"10":19.5},"120":{"0":20.4,"5":22.9,"10":26.0},"140":{"0":25.9,"5":29.3,"10":33.2},"160":{"0":31.9,"5":36.2,"10":41.2},"180":{"0":38.4,"5":43.6,"10":50.0}},
+    "50":{"80":{"0":10.9,"5":12.2,"10":13.8},"100":{"0":15.4,"5":17.3,"10":19.5},"120":{"0":20.4,"5":23.0,"10":26.1},"140":{"0":26.0,"5":29.4,"10":33.4},"160":{"0":32.1,"5":36.4,"10":41.6},"180":{"0":38.7,"5":44.0,"10":50.5}}
+  },
+  "50": {
+    "0": {"80":{"0":11.2,"5":12.6,"10":14.1},"100":{"0":16.2,"5":18.2,"10":20.5},"120":{"0":21.8,"5":24.6,"10":27.9},"140":{"0":28.0,"5":31.7,"10":36.1},"160":{"0":34.8,"5":39.5,"10":45.1},"180":{"0":42.1,"5":47.9,"10":55.1}},
+    "10":{"80":{"0":11.6,"5":13.0,"10":14.6},"100":{"0":16.7,"5":18.8,"10":21.2},"120":{"0":22.5,"5":25.4,"10":28.8},"140":{"0":28.9,"5":32.7,"10":37.2},"160":{"0":35.9,"5":40.7,"10":46.6},"180":{"0":43.5,"5":49.4,"10":56.8}},
+    "15":{"80":{"0":11.7,"5":13.2,"10":14.8},"100":{"0":16.9,"5":19.1,"10":21.5},"120":{"0":22.8,"5":25.8,"10":29.2},"140":{"0":29.4,"5":33.2,"10":37.8},"160":{"0":36.5,"5":41.4,"10":47.3},"180":{"0":44.2,"5":50.2,"10":57.7}},
+    "20":{"80":{"0":11.9,"5":13.4,"10":15.1},"100":{"0":17.2,"5":19.4,"10":21.9},"120":{"0":23.2,"5":26.2,"10":29.6},"140":{"0":29.8,"5":33.7,"10":38.4},"160":{"0":37.0,"5":42.0,"10":48.0},"180":{"0":44.8,"5":50.9,"10":58.6}},
+    "30":{"80":{"0":12.3,"5":13.8,"10":15.5},"100":{"0":17.7,"5":19.9,"10":22.5},"120":{"0":23.8,"5":26.9,"10":30.5},"140":{"0":30.7,"5":34.7,"10":39.4},"160":{"0":38.1,"5":43.2,"10":49.4},"180":{"0":46.1,"5":52.4,"10":60.2}},
+    "40":{"80":{"0":12.3,"5":13.8,"10":15.6},"100":{"0":17.8,"5":20.0,"10":22.6},"120":{"0":24.0,"5":27.1,"10":30.7},"140":{"0":30.9,"5":35.0,"10":39.9},"160":{"0":38.5,"5":43.7,"10":50.0},"180":{"0":46.7,"5":53.1,"10":61.2}},
+    "50":{"80":{"0":12.3,"5":13.8,"10":15.6},"100":{"0":17.8,"5":20.1,"10":22.7},"120":{"0":24.1,"5":27.2,"10":30.9},"140":{"0":31.1,"5":35.2,"10":40.2},"160":{"0":38.8,"5":44.1,"10":50.6},"180":{"0":47.2,"5":53.8,"10":62.1}}
+  },
+  "60": {
+    "0": {"80":{"0":12.6,"5":14.1,"10":15.9},"100":{"0":18.4,"5":20.7,"10":23.4},"120":{"0":25.1,"5":28.3,"10":32.2},"140":{"0":32.5,"5":36.9,"10":42.1},"160":{"0":40.7,"5":46.3,"10":53.1},"180":{"0":49.6,"5":56.5,"10":65.3}},
+    "10":{"80":{"0":13.0,"5":14.6,"10":16.4},"100":{"0":19.0,"5":21.4,"10":24.2},"120":{"0":25.9,"5":29.2,"10":33.2},"140":{"0":33.6,"5":38.0,"10":43.4},"160":{"0":42.0,"5":47.7,"10":54.9},"180":{"0":51.2,"5":58.3,"10":67.4}},
+    "15":{"80":{"0":13.2,"5":14.8,"10":16.6},"100":{"0":19.3,"5":21.7,"10":24.6},"120":{"0":26.3,"5":29.7,"10":33.7},"140":{"0":34.1,"5":38.6,"10":44.1},"160":{"0":42.7,"5":48.5,"10":55.7},"180":{"0":51.9,"5":59.2,"10":68.4}},
+    "20":{"80":{"0":13.4,"5":15.0,"10":16.9},"100":{"0":19.6,"5":22.1,"10":24.9},"120":{"0":26.7,"5":30.1,"10":34.2},"140":{"0":34.6,"5":39.2,"10":44.8},"160":{"0":43.3,"5":49.2,"10":56.5},"180":{"0":52.7,"5":60.1,"10":69.5}},
+    "30":{"80":{"0":13.7,"5":15.4,"10":17.4},"100":{"0":20.1,"5":22.7,"10":25.6},"120":{"0":27.4,"5":31.0,"10":35.2},"140":{"0":35.6,"5":40.3,"10":46.0},"160":{"0":44.5,"5":50.6,"10":58.1},"180":{"0":54.2,"5":61.7,"10":71.4}},
+    "40":{"80":{"0":13.8,"5":15.5,"10":17.5},"100":{"0":20.3,"5":22.8,"10":25.8},"120":{"0":27.7,"5":31.3,"10":35.6},"140":{"0":36.0,"5":40.8,"10":46.6},"160":{"0":45.1,"5":51.3,"10":59.0},"180":{"0":55.0,"5":62.8,"10":72.8}},
+    "50":{"80":{"0":13.8,"5":15.5,"10":17.5},"100":{"0":20.3,"5":22.9,"10":25.9},"120":{"0":27.8,"5":31.5,"10":35.8},"140":{"0":36.2,"5":41.1,"10":47.1},"160":{"0":45.6,"5":51.9,"10":59.9},"180":{"0":55.7,"5":63.8,"10":74.2}}
+  },
+  "70": {
+    "0": {"80":{"0":13.9,"5":15.6,"10":17.6},"100":{"0":20.6,"5":23.3,"10":26.3},"120":{"0":28.4,"5":32.1,"10":36.5},"140":{"0":37.1,"5":42.1,"10":48.2},"160":{"0":46.6,"5":53.0,"10":61.2},"180":{"0":56.4,"5":64.4,"10":74.8}},
+    "10":{"80":{"0":14.4,"5":16.2,"10":18.2},"100":{"0":21.3,"5":24.0,"10":27.2},"120":{"0":29.3,"5":33.1,"10":37.7},"140":{"0":38.3,"5":43.4,"10":49.7},"160":{"0":48.1,"5":54.7,"10":63.1},"180":{"0":58.2,"5":66.5,"10":77.2}},
+    "15":{"80":{"0":14.6,"5":16.4,"10":18.5},"100":{"0":21.6,"5":24.4,"10":27.6},"120":{"0":29.8,"5":33.6,"10":38.3},"140":{"0":38.9,"5":44.1,"10":50.5},"160":{"0":48.8,"5":55.6,"10":64.1},"180":{"0":59.1,"5":67.5,"10":78.4}},
+    "20":{"80":{"0":14.8,"5":16.7,"10":18.8},"100":{"0":22.0,"5":24.8,"10":28.0},"120":{"0":30.2,"5":34.2,"10":38.9},"140":{"0":39.5,"5":44.7,"10":51.3},"160":{"0":49.5,"5":56.4,"10":65.1},"180":{"0":60.0,"5":68.5,"10":79.6}},
+    "30":{"80":{"0":15.2,"5":17.1,"10":19.3},"100":{"0":22.6,"5":25.5,"10":28.8},"120":{"0":31.1,"5":35.1,"10":40.0},"140":{"0":40.6,"5":46.0,"10":52.7},"160":{"0":50.9,"5":58.0,"10":66.9},"180":{"0":61.6,"5":70.4,"10":81.8}},
+    "40":{"80":{"0":15.3,"5":17.2,"10":19.4},"100":{"0":22.7,"5":25.6,"10":29.1},"120":{"0":31.3,"5":35.5,"10":40.4},"140":{"0":41.0,"5":46.6,"10":53.5},"160":{"0":51.7,"5":58.9,"10":68.1},"180":{"0":62.7,"5":71.8,"10":83.6}},
+    "50":{"80":{"0":15.3,"5":17.2,"10":19.4},"100":{"0":22.8,"5":25.8,"10":29.2},"120":{"0":31.5,"5":35.7,"10":40.8},"140":{"0":41.4,"5":47.1,"10":54.2},"160":{"0":52.3,"5":59.7,"10":69.3},"180":{"0":63.7,"5":73.1,"10":85.4}}
+  },
+  "80": {
+    "0": {"80":{"0":15.3,"5":17.2,"10":19.4},"100":{"0":22.9,"5":25.8,"10":29.3},"120":{"0":31.7,"5":35.8,"10":40.9},"140":{"0":41.5,"5":47.1,"10":54.2},"160":{"0":52.2,"5":59.6,"10":69.0},"180":{"0":62.4,"5":71.4,"10":83.3}},
+    "10":{"80":{"0":15.8,"5":17.7,"10":20.0},"100":{"0":23.6,"5":26.6,"10":30.2},"120":{"0":32.7,"5":37.0,"10":42.2},"140":{"0":42.8,"5":48.7,"10":55.9},"160":{"0":53.9,"5":61.5,"10":71.2},"180":{"0":64.4,"5":73.7,"10":86.0}},
+    "15":{"80":{"0":16.0,"5":18.0,"10":20.3},"100":{"0":24.0,"5":27.1,"10":30.7},"120":{"0":33.2,"5":37.6,"10":42.9},"140":{"0":43.5,"5":49.4,"10":56.8},"160":{"0":54.7,"5":62.4,"10":72.3},"180":{"0":65.3,"5":74.8,"10":87.3}},
+    "20":{"80":{"0":16.3,"5":18.3,"10":20.6},"100":{"0":24.4,"5":27.5,"10":31.1},"120":{"0":33.7,"5":38.1,"10":43.5},"140":{"0":44.1,"5":50.1,"10":57.6},"160":{"0":55.6,"5":63.4,"10":73.4},"180":{"0":66.3,"5":75.9,"10":88.6}},
+    "30":{"80":{"0":16.7,"5":18.8,"10":21.2},"100":{"0":25.0,"5":28.2,"10":32.0},"120":{"0":34.6,"5":39.2,"10":44.7},"140":{"0":45.4,"5":51.5,"10":59.3},"160":{"0":57.1,"5":65.1,"10":75.4},"180":{"0":68.2,"5":78.0,"10":91.0}},
+    "40":{"80":{"0":16.8,"5":18.9,"10":21.3},"100":{"0":25.2,"5":28.5,"10":32.3},"120":{"0":35.0,"5":39.6,"10":45.3},"140":{"0":46.0,"5":52.3,"10":60.2},"160":{"0":58.0,"5":66.3,"10":77.0},"180":{"0":69.5,"5":79.7,"10":93.3}},
+    "50":{"80":{"0":16.8,"5":19.0,"10":21.4},"100":{"0":25.3,"5":28.6,"10":32.5},"120":{"0":35.2,"5":40.0,"10":45.8},"140":{"0":46.4,"5":52.9,"10":61.1},"160":{"0":58.8,"5":67.4,"10":78.5},"180":{"0":70.7,"5":81.3,"10":95.6}}
+  }
+};
+
+/* =========================
+   ADJUSTED ENERGY TABLES
+   ========================= */
+const REF_BINS = [10,20,30,40,50,60,70,80,90];
+
+const ADJ_NO_REV = {
+  RTO_MAX_MAN: [10,20,30,40,50,60,70,80,90],
+  MAX_MAN:     [7.5,15.8,24.6,33.8,43.5,53.5,63.6,73.9,84.2],
+  MAX_AUTO:    [7.3,15.0,23.2,31.9,41.2,51.0,61.3,72.2,83.7],
+  AB3:         [7.0,14.2,21.8,29.7,38.1,47.1,56.7,67.1,78.3],
+  AB2:         [6.6,13.3,20.2,27.3,34.7,42.6,51.0,59.9,69.6],
+  AB1:         [6.3,12.4,18.6,24.9,31.6,38.6,46.2,54.4,63.5],
+};
+
+const ADJ_TWO_ENG = {
+  RTO_MAX_MAN: [10,20,30,40,50,60,70,80,90],
+  MAX_MAN:     [6.9,14.5,22.7,31.4,40.4,49.7,59.3,68.9,78.5],
+  MAX_AUTO:    [6.0,12.6,19.8,27.6,36.0,45.1,54.8,65.3,76.5],
+  AB3:         [4.5, 9.5,15.1,21.3,28.1,35.6,43.7,52.5,62.0],
+  AB2:         [2.6, 5.9, 9.7,14.1,19.1,24.7,31.0,37.9,45.4],
+  AB1:         [1.8, 3.8, 6.3, 9.1,12.5,16.4,21.0,26.3,32.5],
+};
+
+/* =========================
+   COOLING TABLE
+   ========================= */
+const COOLING_POINTS = [17, 19, 20.9, 23.5, 26.9, 29.4];
+const COOLING_TIME_INFLIGHT = { 17:1.0, 19:4.0, 20.9:5.0, 23.5:6.0, 26.9:7.0, 29.4:7.6 };
+const COOLING_TIME_GROUND   = { 17:6.7, 19:16.0, 20.9:24.1, 23.5:34.2, 26.9:45.9, 29.4:53.3 };
+
+/* =========================
+   HELPERS
+   ========================= */
+const clamp=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
+const lerp=(x,x0,x1,y0,y1)=> (x1===x0?y0 : y0 + ((x-x0)/(x1-x0))*(y1-y0));
+function bounds(arr, x){
+  if (x <= arr[0]) return [arr[0], arr[0]];
+  if (x >= arr[arr.length-1]) return [arr[arr.length-1], arr[arr.length-1]];
+  for (let i=0;i<arr.length-1;i++){
+    if (x >= arr[i] && x <= arr[i+1]) return [arr[i], arr[i+1]];
+  }
+  return [arr[arr.length-1], arr[arr.length-1]];
+}
+function nextHigher(arr, x){ for (const v of arr) if (x <= v) return v; return arr[arr.length-1]; }
+
+function correctedSpeed(bos, mode, wind){
+  if (mode === "HEAD") return bos - 0.5*wind;
+  if (mode === "TAIL") return bos + 1.5*wind;
+  return bos;
+}
+
+function refAt(W,T,S,P){
+  const w = DATA[String(W)];
+  if (!w) return null;
+  const o = w[String(T)];
+  if (!o) return null;
+  const s = o[String(S)];
+  if (!s) return null;
+  const p = s[String(P)];
+  return (typeof p === "number") ? p : null;
+}
+
+function getReferenceEnergyQRH(lwKg, oatC, spd, paFt){
+  const wBin = nextHigher(W_BINS_TKG, lwKg/1000);
+  const tBin = nextHigher(OAT_BINS_C, oatC);
+  const sBin = nextHigher(SPEED_BINS, spd);
+  const pBin = nextHigher(PA_BINS_KFT, paFt/1000);
+  const ref = refAt(wBin,tBin,sBin,pBin);
+  return { ref, wBin, tBin, sBin, pBin };
+}
+
+function getReferenceEnergyInterpolated(lwKg, oatC, spd, paFt){
+  const w = lwKg/1000;
+  const paKft = paFt/1000;
+
+  const [w0,w1] = bounds(W_BINS_TKG, w);
+  const [t0,t1] = bounds(OAT_BINS_C, oatC);
+  const [s0,s1] = bounds(SPEED_BINS, spd);
+  const [p0,p1] = bounds(PA_BINS_KFT, paKft);
+
+  const v = (W,T,S,P)=>{
+    const r = refAt(W,T,S,P);
+    if (typeof r !== "number") throw new Error("Missing DATA point for interpolation");
+    return r;
+  };
+
+  const iPA = (W,T,S)=> lerp(paKft,p0,p1, v(W,T,S,p0), v(W,T,S,p1));
+  const iSPD = (W,T)=> lerp(spd,s0,s1, iPA(W,T,s0), iPA(W,T,s1));
+  const iOAT = (W)=> lerp(oatC,t0,t1, iSPD(W,t0), iSPD(W,t1));
+  const ref = lerp(w,w0,w1, iOAT(w0), iOAT(w1));
+
+  // also compute QRH bins for transparency
+  const q = getReferenceEnergyQRH(lwKg,oatC,spd,paFt);
+
+  return { ref, bounds:{w0,w1,t0,t1,s0,s1,p0,p1}, qrhBins:{ wBin:q.wBin, tBin:q.tBin, sBin:q.sBin, pBin:q.pBin } };
+}
+
+function adjustedEnergy(referenceEnergy, eventKey, reverseMode, mode){
+  const table = (reverseMode==="TWO_ENG_DETENT") ? ADJ_TWO_ENG : ADJ_NO_REV;
+  const arr = table[eventKey];
+  if (!arr) throw new Error("Unknown EVENT");
+
+  if (mode === "QRH"){
+    const bin = nextHigher(REF_BINS, referenceEnergy);
+    const idx = REF_BINS.indexOf(bin);
+    return { adj: arr[idx], refPick: `Ref bin used: ${bin}` };
+  }
+  const x = clamp(referenceEnergy, REF_BINS[0], REF_BINS[REF_BINS.length-1]);
+  const [b0,b1] = bounds(REF_BINS, x);
+  const i0 = REF_BINS.indexOf(b0), i1 = REF_BINS.indexOf(b1);
+  return { adj: lerp(x,b0,b1,arr[i0],arr[i1]), refPick: `Ref interpolated: ${b0}–${b1}` };
+}
+
+function cooling(total, context, mode){
+  // zones always follow thresholds
+  if (total <= 16) return { level:"OK", minutes:0, msg:"No special procedure required (≤ 16).", mapInfo:"" };
+  if (total >= 41) return {
+    level:"DANGER", minutes:null,
+    msg:"FUSE PLUG MELT ZONE (≥ 41). Clear runway immediately. Avoid parking brake unless required. Do not approach gear / attempt taxi for 1 hour. If overheat after takeoff: extend gear soon ≥ 12 min.",
+    mapInfo:"Zone logic: ≥41"
+  };
+  if (total >= 30) return {
+    level:"CAUTION", minutes:null,
+    msg:"CAUTION zone (30–41). Fuse plugs may melt. Delay takeoff and inspect after 1 hour. If overheat after takeoff: extend gear soon ≥ 7 min.",
+    mapInfo:"Zone logic: 30–41"
+  };
+
+  // 16..30: use cooling table
+  const map = (context==="INFLIGHT_GEAR_DOWN") ? COOLING_TIME_INFLIGHT : COOLING_TIME_GROUND;
+  const pts = COOLING_POINTS;
+  const x = clamp(total, pts[0], pts[pts.length-1]);
+
+  if (mode==="QRH"){
+    let p = pts.find(v=>x<=v); if(!p) p=pts[pts.length-1];
+    return { level:"OK", minutes: map[p], msg:`Cooling time by next higher point ${p}.`, mapInfo:`Cooling point used: ${p}` };
+  }
+  const [p0,p1] = bounds(pts, x);
+  const minutes = lerp(x,p0,p1,map[p0],map[p1]);
+  return { level:"OK", minutes, msg:`Cooling time interpolated ${p0}–${p1}.`, mapInfo:`Cooling interpolated: ${p0}–${p1}` };
+}
+
+function badgeClass(level){
+  if (level==="OK") return "ok";
+  if (level==="CAUTION") return "caution";
+  return "danger";
+}
+
+function fmt(n, d=2){ return (typeof n==="number") ? n.toFixed(d) : String(n); }
+
+/* =========================
+   MAIN
+   ========================= */
+document.getElementById("calc").addEventListener("click", ()=>{
+  const lw = Number(document.getElementById("lw").value);
+  const oat = Number(document.getElementById("oat").value);
+  const pa = Number(document.getElementById("pa").value);
+  const bos = Number(document.getElementById("bos").value);
+
+  const windMode = document.getElementById("windMode").value;
+  const wind = Number(document.getElementById("wind").value || 0);
+
+  const taxiMiles = Number(document.getElementById("taxiMiles").value || 0);
+  const eventKey = document.getElementById("event").value;
+  const reverseSel = document.getElementById("reverse").value;
+  const context = document.getElementById("context").value;
+
+  const out = document.getElementById("output");
+
+  if (!Number.isFinite(lw) || lw<=0 || !Number.isFinite(oat) || !Number.isFinite(pa) || !Number.isFinite(bos) || bos<=0){
+    out.innerHTML = "Проверь ввод: LW/OAT/PA/Brakes-on speed должны быть корректны.";
+    return;
+  }
+
+  // Effective values
+  let effOAT=oat, effPA=pa, effSPD=bos;
+  if (windMode==="GS_MODE"){
+    effOAT=15; effPA=0; effSPD=bos;
+  } else {
+    effSPD = correctedSpeed(bos, windMode, wind);
+  }
+
+  const reverseMode = (reverseSel==="TWO_ENG_DETENT") ? "TWO_ENG_DETENT" : "NO_REV";
+  const taxiAdd = taxiMiles>0 ? 1.0*taxiMiles : 0;
+
+  // --- QRH path
+  const qRefInfo = getReferenceEnergyQRH(lw,effOAT,effSPD,effPA);
+  if (typeof qRefInfo.ref !== "number"){
+    out.innerHTML = `<span class="badge caution">NO MATCH</span>
+      <div style="margin-top:8px;">Нет точки в таблице для QRH. Проверь диапазоны W 40–80t, OAT 0–50, PA 0/5/10kft, SPD 80–180.</div>`;
+    return;
+  }
+  const qAdjInfo = adjustedEnergy(qRefInfo.ref, eventKey, reverseMode, "QRH");
+  const qTotal = qAdjInfo.adj + taxiAdd;
+  const qCool = cooling(qTotal, context, "QRH");
+
+  // --- Interp path
+  let iRefInfo;
+  try{
+    iRefInfo = getReferenceEnergyInterpolated(lw,effOAT,effSPD,effPA);
+  } catch(e){
+    out.innerHTML = `<span class="badge danger">ERROR</span>
+      <div style="margin-top:8px;">${String(e.message||e)}</div>`;
+    return;
+  }
+  const iAdjInfo = adjustedEnergy(iRefInfo.ref, eventKey, reverseMode, "INT");
+  const iTotal = iAdjInfo.adj + taxiAdd;
+  const iCool = cooling(iTotal, context, "INT");
+
+  // Build output
+  const qBadge = badgeClass(qCool.level);
+  const iBadge = badgeClass(iCool.level);
+
+  const qMinutes = (qCool.minutes===0) ? "No cooling required"
+                : (typeof qCool.minutes==="number" ? `${qCool.minutes.toFixed(1)} min` : "Zone procedure");
+  const iMinutes = (iCool.minutes===0) ? "No cooling required"
+                : (typeof iCool.minutes==="number" ? `${iCool.minutes.toFixed(1)} min` : "Zone procedure");
+
+  out.innerHTML = `
+    <div class="kv">
+      <div><b>Wind-corrected BOS</b><br><span class="mono">${effSPD.toFixed(1)}</span> kt</div>
+      <div><b>Effective OAT/PA</b><br><span class="mono">${effOAT}</span>°C / <span class="mono">${effPA}</span> ft</div>
+      <div><b>Taxi add</b><br><span class="mono">${taxiAdd.toFixed(2)}</span></div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div>
+      <span class="badge ${qBadge}">QRH (conservative)</span>
+      <div style="margin-top:8px;">
+        <div><b>Reference energy:</b> <span class="mono">${fmt(qRefInfo.ref,2)}</span></div>
+        <div class="small">Reference source (bins): W=${qRefInfo.wBin}k, OAT=${qRefInfo.tBin}°C, PA=${qRefInfo.pBin}kft, SPD=${qRefInfo.sBin}kt</div>
+        <div class="small">Adjusted mapping: ${qAdjInfo.refPick}</div>
+        <div><b>Adjusted:</b> <span class="mono">${fmt(qAdjInfo.adj,2)}</span> · <b>Total:</b> <span class="mono">${fmt(qTotal,2)}</span></div>
+        <div><b>Cooling:</b> ${qMinutes}</div>
+        <div class="muted">${qCool.msg} ${qCool.mapInfo ? ("(" + qCool.mapInfo + ")") : ""}</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div>
+      <span class="badge ${iBadge}">Interpolated (study)</span>
+      <div style="margin-top:8px;">
+        <div><b>Reference energy:</b> <span class="mono">${fmt(iRefInfo.ref,2)}</span></div>
+        <div class="small">Reference bounds: W ${iRefInfo.bounds.w0}–${iRefInfo.bounds.w1}k · OAT ${iRefInfo.bounds.t0}–${iRefInfo.bounds.t1}°C · PA ${iRefInfo.bounds.p0}–${iRefInfo.bounds.p1}kft · SPD ${iRefInfo.bounds.s0}–${iRefInfo.bounds.s1}kt</div>
+        <div class="small">Nearest QRH bins shown: W=${iRefInfo.qrhBins.wBin}k, OAT=${iRefInfo.qrhBins.tBin}°C, PA=${iRefInfo.qrhBins.pBin}kft, SPD=${iRefInfo.qrhBins.sBin}kt</div>
+        <div class="small">Adjusted mapping: ${iAdjInfo.refPick}</div>
+        <div><b>Adjusted:</b> <span class="mono">${fmt(iAdjInfo.adj,2)}</span> · <b>Total:</b> <span class="mono">${fmt(iTotal,2)}</span></div>
+        <div><b>Cooling:</b> ${iMinutes}</div>
+        <div class="muted">${iCool.msg} ${iCool.mapInfo ? ("(" + iCool.mapInfo + ")") : ""}</div>
+      </div>
+    </div>
+  `;
+});
+
+// PWA offline
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js");
+}
+</script>
+</body>
+</html>
