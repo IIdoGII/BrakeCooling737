@@ -1,13 +1,18 @@
 {
-  "name": "Brakecooling_737",
-  "short_name": "Brakecooling",
+  "name": "BrakeCooling737",
+  "short_name": "BrakeCooling",
   "description": "B737 Brake Cooling Calculator by ORYNTAYEV ZHANIBEK",
-  "start_url": "./index.html",
+  "start_url": "/BrakeCooling737/index.html",
+  "scope": "/BrakeCooling737/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#111111",
   "orientation": "portrait",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
   ]
 }
